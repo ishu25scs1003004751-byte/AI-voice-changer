@@ -1,70 +1,41 @@
 import os
 import streamlit as st
 from groq import Groq
-from gtts import gTTS
 import tempfile
-import numpy as np
-from scipy.io import wavfile
-import scipy.signal
+import asyncio
+import edge_tts
 
-# Page Config
+# Streamlit Page Config
 st.set_page_config(page_title="AI Voice Converter", page_icon="🎙️")
 
-st.title("🎙️ Real AI Voice Converter")
-st.write("Apni voice upload karein aur transformed voice me convert karein!")
+st.title("🎙️ Real Human AI Voice Converter")
+st.write("Apni voice upload karein aur ultra-realistic human voices me convert karein!")
 
-# Audio Pitch Transformation Logic using Scipy
-def apply_pitch_and_speed(input_wav_path, voice_style):
-    sample_rate, audio_data = wavfile.read(input_wav_path)
-    
-    # Dual channel to single channel conversion
-    if len(audio_data.shape) > 1:
-        audio_data = audio_data.mean(axis=1)
-
-    if voice_style == "Female Voice":
-        # Pitch Increase (~40% pitch up)
-        pitch_factor = 1.35
-        resampled_data = scipy.signal.resample(audio_data, int(len(audio_data) / pitch_factor))
-        output_rate = sample_rate
-        
-    elif voice_style == "Child Voice":
-        # High Pitch (~60% pitch up)
-        pitch_factor = 1.55
-        resampled_data = scipy.signal.resample(audio_data, int(len(audio_data) / pitch_factor))
-        output_rate = sample_rate
-
-    elif voice_style == "Monster Voice":
-        # Deep Pitch (~35% pitch down)
-        pitch_factor = 0.65
-        resampled_data = scipy.signal.resample(audio_data, int(len(audio_data) / pitch_factor))
-        output_rate = sample_rate
-
-    elif voice_style == "Robot Voice":
-        # Robot / Ring Modulated Filter Effect
-        t = np.arange(len(audio_data)) / sample_rate
-        carrier = np.sin(2 * np.pi * 120 * t)
-        resampled_data = audio_data * carrier
-        output_rate = sample_rate
-    else:
-        resampled_data = audio_data
-        output_rate = sample_rate
-
-    # Normalize audio data
-    resampled_data = np.int16(resampled_data / np.max(np.abs(resampled_data)) * 32767)
-
-    output_wav_path = "final_output.wav"
-    wavfile.write(output_wav_path, output_rate, resampled_data)
-    return output_wav_path
-
-# API Key handling
+# API Key Check
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-
 if not GROQ_API_KEY:
     st.error("Groq API Key set nahi hai! Kripya Streamlit Secrets me add karein.")
     st.stop()
 
 client = Groq(api_key=GROQ_API_KEY)
 
+# Edge-TTS Natural Human Voice Mapping
+VOICE_MAPPING = {
+    "Female Voice": "hi-IN-SwaraNeural",         # Natural Female Voice
+    "Child Voice": "en-US-AnaNeural",           # Natural Child Voice
+    "Monster Voice": "en-US-ChristopherNeural",   # Deep Heavy Voice
+    "Robot Voice": "en-US-GuyNeural"             # Standard Male Voice
+}
+
+# Async Edge-TTS Function
+async def generate_natural_voice(text, voice_name, output_file, is_monster=False):
+    if is_monster:
+        communicate = edge_tts.Communicate(text, voice_name, pitch="-20Hz", rate="-10%")
+    else:
+        communicate = edge_tts.Communicate(text, voice_name)
+    await communicate.save(output_file)
+
+# UI Elements
 voice_option = st.selectbox(
     "Target Voice Style Select Karein:",
     ("Female Voice", "Child Voice", "Robot Voice", "Monster Voice")
@@ -81,7 +52,7 @@ if uploaded_file is not None:
 
     if st.button("🚀 Convert Voice"):
         try:
-            # 1. Speech-to-Text via Whisper
+            # 1. Speech to Text via Whisper
             with st.spinner("Processing Audio (Whisper STT)..."):
                 with open(input_audio_path, "rb") as file:
                     transcription = client.audio.transcriptions.create(
@@ -91,9 +62,9 @@ if uploaded_file is not None:
                     )
                 st.info(f"**Recognized Text:** {transcription}")
 
-            # 2. Text Adaptation via Llama
+            # 2. Text Modification via Llama
             with st.spinner("Adapting Style with Llama..."):
-                system_prompt = f"Rewrite this text to sound like a {voice_option}. Output ONLY the rewritten text without commentary."
+                system_prompt = f"Rewrite this text to naturally sound like a {voice_option}. Keep output brief and in clear text."
                 chat_completion = client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -104,26 +75,17 @@ if uploaded_file is not None:
                 styled_text = chat_completion.choices[0].message.content.strip()
                 st.success(f"**Adapted Script:** {styled_text}")
 
-            # 3. Base TTS Audio Generation
-            with st.spinner("Generating Transformed Audio Output..."):
-                temp_mp3_path = "temp_speech.mp3"
-                temp_wav_path = "temp_speech.wav"
+            # 3. Ultra-Realistic TTS Generation
+            with st.spinner("Generating Natural AI Voice Output..."):
+                output_audio_path = "natural_output.mp3"
+                selected_voice = VOICE_MAPPING.get(voice_option, "hi-IN-SwaraNeural")
+                is_monster = True if voice_option == "Monster Voice" else False
 
-                # Generate TTS
-                tts = gTTS(text=styled_text, lang="ur")
-                tts.save(temp_mp3_path)
+                # Run async TTS generator
+                asyncio.run(generate_natural_voice(styled_text, selected_voice, output_audio_path, is_monster))
 
-                # Convert TTS MP3 to WAV for Scipy processing
-                os.system(f"ffmpeg -i {temp_mp3_path} -y {temp_wav_path}")
-
-                # Check if ffmpeg is available; fallback to standard audio output
-                if os.path.exists(temp_wav_path):
-                    final_audio_path = apply_pitch_and_speed(temp_wav_path, voice_option)
-                    st.subheader("🎧 Transformed Voice Output:")
-                    st.audio(final_audio_path, format="audio/wav")
-                else:
-                    st.subheader("🎧 Transformed Voice Output:")
-                    st.audio(temp_mp3_path, format="audio/mp3")
+                st.subheader("🎧 Realistic Human Voice Output:")
+                st.audio(output_audio_path, format="audio/mp3")
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
