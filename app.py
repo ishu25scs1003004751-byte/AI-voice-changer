@@ -52,7 +52,7 @@ if uploaded_file is not None:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": transcription}
                     ],
-                   model="llama-3.3-70b-versatile",
+                   model="llama3-8b-8192",
                 )
                 styled_text = chat_completion.choices[0].message.content
                 st.success(f"**Adapted Script:** {styled_text}")
