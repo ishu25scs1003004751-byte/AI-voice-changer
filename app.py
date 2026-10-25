@@ -4,52 +4,57 @@ from groq import Groq
 from gtts import gTTS
 import tempfile
 import numpy as np
-from pydub import AudioSegment
+from scipy.io import wavfile
+import scipy.signal
 
 # Page Config
 st.set_page_config(page_title="AI Voice Converter", page_icon="🎙️")
 
 st.title("🎙️ Real AI Voice Converter")
-st.write("Apni voice upload karein aur pitch-shifted voice me convert karein!")
+st.write("Apni voice upload karein aur transformed voice me convert karein!")
 
-# Pitch Shift Helper Function using PyDub
-def apply_voice_effect(audio_path, voice_style):
-    sound = AudioSegment.from_file(audio_path)
+# Audio Pitch Transformation Logic using Scipy
+def apply_pitch_and_speed(input_wav_path, voice_style):
+    sample_rate, audio_data = wavfile.read(input_wav_path)
     
+    # Dual channel to single channel conversion
+    if len(audio_data.shape) > 1:
+        audio_data = audio_data.mean(axis=1)
+
     if voice_style == "Female Voice":
-        # Pitch High (Female tone)
-        octaves = 0.35
-        new_sample_rate = int(sound.frame_rate * (2.0 ** octaves))
-        transformed = sound._spawn(sound.raw_data, overrides={'frame_rate': new_sample_rate})
-        transformed = transformed.set_frame_rate(sound.frame_rate)
+        # Pitch Increase (~40% pitch up)
+        pitch_factor = 1.35
+        resampled_data = scipy.signal.resample(audio_data, int(len(audio_data) / pitch_factor))
+        output_rate = sample_rate
         
     elif voice_style == "Child Voice":
-        # Super High Pitch + Slightly Faster Speed
-        octaves = 0.55
-        new_sample_rate = int(sound.frame_rate * (2.0 ** octaves))
-        transformed = sound._spawn(sound.raw_data, overrides={'frame_rate': new_sample_rate})
-        transformed = transformed.set_frame_rate(sound.frame_rate).speedup(playback_speed=1.15)
+        # High Pitch (~60% pitch up)
+        pitch_factor = 1.55
+        resampled_data = scipy.signal.resample(audio_data, int(len(audio_data) / pitch_factor))
+        output_rate = sample_rate
 
     elif voice_style == "Monster Voice":
-        # Deep Pitch Shift
-        octaves = -0.4
-        new_sample_rate = int(sound.frame_rate * (2.0 ** octaves))
-        transformed = sound._spawn(sound.raw_data, overrides={'frame_rate': new_sample_rate})
-        transformed = transformed.set_frame_rate(sound.frame_rate)
+        # Deep Pitch (~35% pitch down)
+        pitch_factor = 0.65
+        resampled_data = scipy.signal.resample(audio_data, int(len(audio_data) / pitch_factor))
+        output_rate = sample_rate
 
     elif voice_style == "Robot Voice":
-        # High Pitch + Fast Repeats / Metallic
-        octaves = 0.1
-        new_sample_rate = int(sound.frame_rate * (2.0 ** octaves))
-        transformed = sound._spawn(sound.raw_data, overrides={'frame_rate': new_sample_rate})
-        transformed = transformed.set_frame_rate(sound.frame_rate)
-
+        # Robot / Ring Modulated Filter Effect
+        t = np.arange(len(audio_data)) / sample_rate
+        carrier = np.sin(2 * np.pi * 120 * t)
+        resampled_data = audio_data * carrier
+        output_rate = sample_rate
     else:
-        transformed = sound
+        resampled_data = audio_data
+        output_rate = sample_rate
 
-    output_path = "final_pitch_shifted.mp3"
-    transformed.export(output_path, format="mp3")
-    return output_path
+    # Normalize audio data
+    resampled_data = np.int16(resampled_data / np.max(np.abs(resampled_data)) * 32767)
+
+    output_wav_path = "final_output.wav"
+    wavfile.write(output_wav_path, output_rate, resampled_data)
+    return output_wav_path
 
 # API Key handling
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
@@ -76,7 +81,7 @@ if uploaded_file is not None:
 
     if st.button("🚀 Convert Voice"):
         try:
-            # 1. Speech-to-Text
+            # 1. Speech-to-Text via Whisper
             with st.spinner("Processing Audio (Whisper STT)..."):
                 with open(input_audio_path, "rb") as file:
                     transcription = client.audio.transcriptions.create(
@@ -86,9 +91,9 @@ if uploaded_file is not None:
                     )
                 st.info(f"**Recognized Text:** {transcription}")
 
-            # 2. Text Adaption
+            # 2. Text Adaptation via Llama
             with st.spinner("Adapting Style with Llama..."):
-                system_prompt = f"Rewrite this sentence to fit a {voice_option} tone. Keep output brief."
+                system_prompt = f"Rewrite this text to sound like a {voice_option}. Output ONLY the rewritten text without commentary."
                 chat_completion = client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -99,17 +104,26 @@ if uploaded_file is not None:
                 styled_text = chat_completion.choices[0].message.content.strip()
                 st.success(f"**Adapted Script:** {styled_text}")
 
-            # 3. Base TTS Generation
-            with st.spinner("Applying Voice & Pitch Transformation..."):
-                temp_raw_audio = "temp_raw.mp3"
+            # 3. Base TTS Audio Generation
+            with st.spinner("Generating Transformed Audio Output..."):
+                temp_mp3_path = "temp_speech.mp3"
+                temp_wav_path = "temp_speech.wav"
+
+                # Generate TTS
                 tts = gTTS(text=styled_text, lang="ur")
-                tts.save(temp_raw_audio)
+                tts.save(temp_mp3_path)
 
-                # 4. Pitch Processing
-                final_audio = apply_voice_effect(temp_raw_audio, voice_option)
+                # Convert TTS MP3 to WAV for Scipy processing
+                os.system(f"ffmpeg -i {temp_mp3_path} -y {temp_wav_path}")
 
-                st.subheader("🎧 Transformed Real Voice:")
-                st.audio(final_audio, format="audio/mp3")
+                # Check if ffmpeg is available; fallback to standard audio output
+                if os.path.exists(temp_wav_path):
+                    final_audio_path = apply_pitch_and_speed(temp_wav_path, voice_option)
+                    st.subheader("🎧 Transformed Voice Output:")
+                    st.audio(final_audio_path, format="audio/wav")
+                else:
+                    st.subheader("🎧 Transformed Voice Output:")
+                    st.audio(temp_mp3_path, format="audio/mp3")
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
