@@ -25,7 +25,7 @@ voice_option = st.selectbox(
     ("Female Voice", "Child Voice", "Robot Voice", "Monster Voice")
 )
 
-uploaded_file = st.file_uploader("Audio File Upload Karein (.wav, .mp3)", type=["wav", "mp3"])
+uploaded_file = st.file_uploader("Audio File Upload Karein", type=["wav", "mp3", "mpeg", "m4a", "ogg", "aac"])
 
 if uploaded_file is not None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
