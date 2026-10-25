@@ -19,20 +19,17 @@ if not GROQ_API_KEY:
 
 client = Groq(api_key=GROQ_API_KEY)
 
-# Edge-TTS Natural Human Voice Mapping
+# Edge-TTS Natural Human Voice Mapping (High-Reliability Voices)
 VOICE_MAPPING = {
-    "Female Voice": "hi-IN-SwaraNeural",         # Natural Female Voice
-    "Child Voice": "en-US-AnaNeural",           # Natural Child Voice
-    "Monster Voice": "en-US-ChristopherNeural",   # Deep Heavy Voice
+    "Female Voice": "hi-IN-SwaraNeural",         # Natural Female Voice (Hindi/Urdu Support)
+    "Child Voice": "hi-IN-MadhurNeural",         # Natural Young Voice
+    "Monster Voice": "en-US-ChristopherNeural",   # Deep Heavy Male Voice
     "Robot Voice": "en-US-GuyNeural"             # Standard Male Voice
 }
 
 # Async Edge-TTS Function
-async def generate_natural_voice(text, voice_name, output_file, is_monster=False):
-    if is_monster:
-        communicate = edge_tts.Communicate(text, voice_name, pitch="-20Hz", rate="-10%")
-    else:
-        communicate = edge_tts.Communicate(text, voice_name)
+async def generate_natural_voice(text, voice_name, output_file):
+    communicate = edge_tts.Communicate(text, voice_name)
     await communicate.save(output_file)
 
 # UI Elements
@@ -64,7 +61,7 @@ if uploaded_file is not None:
 
             # 2. Text Modification via Llama
             with st.spinner("Adapting Style with Llama..."):
-                system_prompt = f"Rewrite this text to naturally sound like a {voice_option}. Keep output brief and in clear text."
+                system_prompt = f"Rewrite this text to naturally sound like a {voice_option}. Keep output brief in English or Hindi script only, no symbols or commentary."
                 chat_completion = client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -79,10 +76,9 @@ if uploaded_file is not None:
             with st.spinner("Generating Natural AI Voice Output..."):
                 output_audio_path = "natural_output.mp3"
                 selected_voice = VOICE_MAPPING.get(voice_option, "hi-IN-SwaraNeural")
-                is_monster = True if voice_option == "Monster Voice" else False
 
                 # Run async TTS generator
-                asyncio.run(generate_natural_voice(styled_text, selected_voice, output_audio_path, is_monster))
+                asyncio.run(generate_natural_voice(styled_text, selected_voice, output_audio_path))
 
                 st.subheader("🎧 Realistic Human Voice Output:")
                 st.audio(output_audio_path, format="audio/mp3")
